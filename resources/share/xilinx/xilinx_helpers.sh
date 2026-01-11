@@ -124,10 +124,11 @@ function xilinx_install() {
 		bash -c "mkdir -p .local/share/applications && mkdir -p Desktop && bash \"$installer_dir/installer/xsetup\""
 
 	# Apply the patch (ignoring failures)
-	"$(dirname "${BASH_SOURCE[0]}")/patch_vitis_HwSpecFile.sh" "$XILINX_INSTALL_PATH/Vitis/$installer_version" || true
+	[ -d "$XILINX_INSTALL_PATH/Vitis/$installer_version" ] && "$(dirname "${BASH_SOURCE[0]}")/patch_vitis_HwSpecFile.sh" "$XILINX_INSTALL_PATH/Vitis/$installer_version" || true
+	[ -d "$XILINX_INSTALL_PATH/$installer_version/Vitis" ] && "$(dirname "${BASH_SOURCE[0]}")/patch_vitis_HwSpecFile.sh" "$XILINX_INSTALL_PATH/$installer_version/Vitis" || true
 
 	xilinx_detect
-	zenity --class "$CURRENT_WM_CLASS" --width=600 --info --text "Installation is complete.\nTo allow access to the hardware devices (necessary to program them within Vivado and Vitis), run <b>cd \"$XILINX_INSTALL_PATH/Vivado/${installed_versions[0]}/data/xicom/cable_drivers/lin64/install_script/install_drivers/\" &amp;&amp; sudo ./install_drivers &amp;&amp; sudo udevadm control --reload</b>, then reconnect all the devices (if any)"
+	zenity --class "$CURRENT_WM_CLASS" --width=600 --info --text "Installation is complete.\nTo allow access to the hardware devices (necessary to program them within Vivado and Vitis), run <b>cd \"$XILINX_INSTALL_PATH/${installed_versions[0]}/Vivado/data/xicom/cable_drivers/lin64/install_script/install_drivers/\" &amp;&amp; sudo ./install_drivers &amp;&amp; sudo udevadm control --reload</b>, then reconnect all the devices (if any)"
 }
 
 function xilinx_source_settings64() {
@@ -137,7 +138,7 @@ function xilinx_source_settings64() {
 	settings64_dir=$(mktemp -d)
 
 	# Copy the ".settings64" scripts
-	find "$XILINX_INSTALL_PATH" -maxdepth 3 -regextype posix-egrep -regex ".*/($version_escaped_dot|DocNav)/\.settings64[^/]*\.sh" -exec cp {} "$settings64_dir" \;
+	find "$XILINX_INSTALL_PATH" -maxdepth 3 -regextype posix-egrep -regex ".*/($version_escaped_dot|DocNav)/[^/]*/?\.settings64[^/]*\.sh" -exec cp {} "$settings64_dir" \;
 
 	# Get the original installation folder
 	local installation_folder
@@ -148,8 +149,15 @@ function xilinx_source_settings64() {
 	# Fix the paths in .settings64*.sh (so that the installation can be freely moved)
 	find "$settings64_dir" -type f -exec sed -i "s^$installation_folder^$XILINX_INSTALL_PATH^g" {} \;
 
+	# Fix unbound variable error, e.g. replacing 'if [ -n "${PYTHONPATH}" ]' with 'if [ -n "${PYTHONPATH:-}" ]'
+	find "$settings64_dir" -type f -exec sed -i 's/if \[ -n "\${\([A-Z]*\)}" \]/if [ -n "${\1:-}" ]/g' {} \;
+
 	# Replace the absolute paths in Vivado/*/settings64.sh with relative ones
-	sed "s|source .*/.settings64|source $settings64_dir/.settings64|g" "$XILINX_INSTALL_PATH/Vivado/$1/settings64.sh" > "$settings64_dir/settings64.sh"
+	if [ -f "$XILINX_INSTALL_PATH/Vivado/$1/settings64.sh" ]; then
+		sed "s|source .*/.settings64|source $settings64_dir/.settings64|g" "$XILINX_INSTALL_PATH/Vivado/$1/settings64.sh" > "$settings64_dir/settings64.sh"
+	else
+		sed "s|source .*/.settings64|source $settings64_dir/.settings64|g" "$XILINX_INSTALL_PATH/$1/Vivado/settings64.sh" > "$settings64_dir/settings64.sh"
+	fi
 
 	source "$settings64_dir/settings64.sh"
 	rm -rf "$settings64_dir"
